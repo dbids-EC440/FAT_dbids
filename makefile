@@ -1,13 +1,15 @@
+FLAGS = -Werror -Wall -g
+
 all: fs.o
 
 main: fs.o disk.o
-	gcc -o main -Wall -g $^ main.c
+	gcc -o main $(FLAGS) $^ main.c
 
 fs: fs.o disk.o
-	gcc -o $@ -Wall -g $^
+	gcc -o $@ $(FLAG)S $^
 
 %.o: %.c
-	gcc -o $@ -Wall -g -c $<
+	gcc -o $@ $(FLAGS) -c $<
 
 clean:
 	rm -f fs *.o *~
