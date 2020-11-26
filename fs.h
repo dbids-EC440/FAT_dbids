@@ -6,20 +6,23 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 #define DISK_BLOCKS  8192      /* number of blocks on the disk                */
 #define BLOCK_SIZE   4096      /* block size on "disk"                        */
 #define MAX_F_NAME   15        /* maximum size of file name                   */
 #define MAX_F_NUM    64        /* maximum number of files                     */
 #define MAX_FILDES   32        /* maximum number of file descriptors          */
-#define FAT_SIZE     8250     /* maximum number of entries in FAT             */
+#define FAT_SIZE     8249      /* maximum number of entries in FAT             */
 #define SUCCESS      0
 #define FAILURE      -1
+#define SUPERBLOCK_LOC 0       /* Fixed location of the super block on the virtual disk */
+#define META_END               /* End of meta information on disk */
 
 //Super Block: 10 bytes
 //DIR :        1792 bytes
 //DIR + Super Block --> 1802 bytes or 1 block
-//FAT : 5 blocks in meta --> 8192 blocks addressable but only 8186 remain + 64 eof = 8250
+//FAT : 5 blocks in meta --> 8192 blocks addressable but only 8185 remain + 64 eof = 8249
 /******************************************************************************/
 int make_fs(char* disk_name);
 int mount_fs(char* disk_name);
