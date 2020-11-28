@@ -1,6 +1,6 @@
-FLAGS = -Werror -Wall -g
+FLAGS = -Werror -Wall -g -O0
 
-all: fs.o
+all: main
 
 main: fs.o disk.o
 	gcc -o main $(FLAGS) $^ main.c
@@ -12,5 +12,6 @@ fs: fs.o disk.o
 	gcc -o $@ $(FLAGS) -c $<
 
 clean:
-	rm -f fs *.o *~
+	rm -f fs *.o *~ main
+
 
