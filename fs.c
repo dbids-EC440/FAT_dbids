@@ -15,7 +15,7 @@ struct super_block
 
 struct dir_entry
 {
-    int used;                // Is this file-”slot” in use
+    int used;                   // Is this file-”slot” in use
     char name [MAX_F_NAME + 1]; 
     int size;                   // file size
     unsigned short head;        // first data block of file
@@ -24,7 +24,7 @@ struct dir_entry
 
 struct file_descriptor
 {
-    int used;          // fdin use
+    int used;                    // fdin use
     unsigned short file;         // the first block of the file (f) to which fd refers to
     unsigned short offset;       // position of fd within f
 };
@@ -38,9 +38,9 @@ struct dir_entry DIR[MAX_F_NUM];           // Will be populated with the directo
 int writeSuperBlock()
 {
     char buffer[BLOCK_SIZE];
-    sprintf(&buffer[0], "%hu%hu%hu%hu%hu", fs.fat_idx, fs.fat_len, fs.dir_idx, fs.dir_len, fs.data_idx);
+    sprintf(&buffer[0], "%4hu%4hu%4hu%4hu%4hu", fs.fat_idx, fs.fat_len, fs.dir_idx, fs.dir_len, fs.data_idx);
     
-    if(block_write(0, buffer) == -1)
+    if(block_write(SUPERBLOCK_LOC, &buffer[0]) == -1)
     {
         return FAILURE;
     }
@@ -53,12 +53,12 @@ int readSuperBlock()
 {
     //Read the superblock from the disk
     char buffer[BLOCK_SIZE];
-    if(block_read(0, buffer) == -1)
+    if(block_read(SUPERBLOCK_LOC, buffer) == -1)
     {
         return FAILURE;
     }
-    
-    sscanf(&buffer[0], "%hu%hu%hu%hu%hu", &fs.fat_idx, &fs.fat_len, &fs.dir_idx, &fs.dir_len, &fs.data_idx);
+
+    sscanf(&buffer[0], "%4hu%4hu%4hu%4hu%4hu", &fs.fat_idx, &fs.fat_len, &fs.dir_idx, &fs.dir_len, &fs.data_idx);
 
     return SUCCESS;
 }
@@ -69,14 +69,14 @@ int writeDirectory(unsigned short dir_idx)
     //Get all of the directory contents into a string
     int i;
     int index;
-    char w_dir_str[(MAX_F_NUM * sizeof(struct dir_entry)) + 1] = {0};
+    char w_dir_str[BLOCK_SIZE] = {0};
     for (i = 0; i < MAX_F_NUM; i++)
     {
-        index += sprintf(&w_dir_str[index], "%d%s%d%hu%hhd", DIR[i].used, DIR[i].name, DIR[i].size, DIR[i].head, DIR[i].ref_cnt);
+        index += sprintf(&w_dir_str[index], "%1d%16s%8d%4hu%2hhd", DIR[i].used, DIR[i].name, DIR[i].size, DIR[i].head, DIR[i].ref_cnt);
     }
 
     //Write the directory string to disk
-    if (block_write(dir_idx, w_dir_str) == -1)
+    if (block_write(dir_idx, &w_dir_str[0]) == -1)
     {
         return FAILURE;
     }
@@ -87,9 +87,6 @@ int writeDirectory(unsigned short dir_idx)
 //Reads the formatted directory from the disk
 int readDirectory(unsigned short dir_idx)
 {
-    int i;
-    int dirSize = sizeof(struct dir_entry);
-
     //Define strings for reading
     char r_dir_str[BLOCK_SIZE];
 
@@ -100,12 +97,13 @@ int readDirectory(unsigned short dir_idx)
     }
 
     //Parse the read directory string to the directory struct
+    int i;
     for (i = 0; i < MAX_F_NUM; i++)
     {
-        //sscanf(&r_dir_str[i*dirSize], "%d%s%d%hu%hhd", &DIR[i].used, &DIR[i].name, &DIR[i].size, &DIR[i].head, &DIR[i].ref_cnt);
-        sscanf(&r_dir_str[i*dirSize], "%d", &DIR[i].used);
-        strncpy(DIR[i].name, &r_dir_str[(i*dirSize)+sizeof(int)], sizeof(char[MAX_F_NAME + 1]));
-        sscanf(&r_dir_str[(i*dirSize) + sizeof(int) + sizeof(char[MAX_F_NAME + 1])], "%d%hu%hhd", &DIR[i].size, &DIR[i].head, &DIR[i].ref_cnt);
+        sscanf(&r_dir_str[i*36], "%1d%16s%8d%4hu%2hhd", &DIR[i].used, DIR[i].name, &DIR[i].size, &DIR[i].head, &DIR[i].ref_cnt);
+        //sscanf(&r_dir_str[i*dirSize], "%d ", &DIR[i].used);
+        //strncpy(DIR[i].name, &r_dir_str[(i*dirSize)+sizeof(int)], sizeof(char[MAX_F_NAME + 1]));
+        //sscanf(&r_dir_str[(i*dirSize) + sizeof(int) + sizeof(char[MAX_F_NAME + 1])], "%d%hu%hhd", &DIR[i].size, &DIR[i].head, &DIR[i].ref_cnt);
     }
     return SUCCESS;
 }
@@ -115,15 +113,15 @@ int writeFAT(unsigned short fat_idx, unsigned int fat_len)
 {
     //Assmble the string representing the FAT
     int i;
-    char FAT_str[((FAT_SIZE*sizeof(unsigned short)) / BLOCK_SIZE) + (FAT_SIZE % BLOCK_SIZE != 0) * BLOCK_SIZE] = {0};
+    char FAT_str[FAT_LEN * BLOCK_SIZE] = {0};
     int index;
     for (i = 0; i < FAT_SIZE; i++)
     {
-        index += sprintf(&FAT_str[index], "%hu", FAT[i]);
+        index += sprintf(&FAT_str[index], "%4hu", FAT[i]);
     }
 
     //Write the string to each block
-    for (i = fat_idx; i < fat_len+fat_idx; i++)
+    for (i = fat_idx; i < fat_len + fat_idx; i++)
     {
         if (block_write(i, &FAT_str[BLOCK_SIZE * (i - fat_idx)]) == -1)
         {
@@ -138,7 +136,7 @@ int writeFAT(unsigned short fat_idx, unsigned int fat_len)
 int readFAT(unsigned short fat_idx, unsigned int fat_len)
 {
     //Read the FAT from the disk, need to loop to get all the blocks it is within
-    char FAT_str[((FAT_SIZE*sizeof(unsigned short)) / BLOCK_SIZE) + (FAT_SIZE % BLOCK_SIZE != 0) * BLOCK_SIZE] = {0};
+    char FAT_str[FAT_LEN * BLOCK_SIZE] = {0};
     int i;
     for (i = fat_idx; i < fat_len+fat_idx; i++)
     {
@@ -149,7 +147,7 @@ int readFAT(unsigned short fat_idx, unsigned int fat_len)
     }
     
     for (i = 0; i < FAT_SIZE; i++)
-        sscanf(&FAT_str[i*sizeof(unsigned short)], "%hu", &FAT[i]);
+        sscanf(&FAT_str[i], "%4hu", &FAT[i]);
 
     return SUCCESS;
 }
@@ -157,26 +155,26 @@ int readFAT(unsigned short fat_idx, unsigned int fat_len)
 int make_fs(char* disk_name)
 {
     //Call make_disk
-    if(make_disk(disk_name) == -1)
+    if (make_disk(disk_name) == -1)
     {
         return FAILURE;
     }
 
     //Open the disk
-    if(open_disk(disk_name) == -1)
+    if (open_disk(disk_name) == -1)
     {
         return FAILURE;
     }
 
     //Initialize default values for superblock
-    fs.fat_idx = 2;
-    fs.fat_len = 5;
-    fs.dir_idx = 1;
-    fs.dir_len = 1;
-    fs.data_idx = 7;
+    fs.fat_idx = FAT_IDX;
+    fs.fat_len = FAT_LEN;
+    fs.dir_idx = DIR_IDX;
+    fs.dir_len = DIR_LEN;
+    fs.data_idx = DATA_IDX;
 
     //Write Empty Superblock
-    if(writeSuperBlock() == -1)
+    if (writeSuperBlock() == -1)
     {
         return FAILURE;
     }
@@ -187,19 +185,19 @@ int make_fs(char* disk_name)
     {
         DIR[i].used = 0;
     }
-    if(writeDirectory(fs.dir_idx) == -1)
+    if (writeDirectory(fs.dir_idx) == -1)
     {
         return FAILURE;
     }
 
     //Write Empty FAT
-    if(writeFAT(fs.fat_idx, fs.fat_len) == -1)
+    if (writeFAT(fs.fat_idx, fs.fat_len) == -1)
     {
         return FAILURE;
     }
 
     //Close the disk
-    if(close_disk() == -1)
+    if (close_disk() == -1)
     {
         return FAILURE;
     }
@@ -210,25 +208,25 @@ int make_fs(char* disk_name)
 int mount_fs(char* disk_name)
 {
     //Open the disk
-    if(open_disk(disk_name) == -1)
+    if (open_disk(disk_name) == -1)
     {
         return FAILURE;
     }
 
     //Read the super block
-    if(readSuperBlock() == -1)
+    if (readSuperBlock() == -1)
     {
         return FAILURE;
     }
 
     //Read the directory
-    if(readDirectory(fs.dir_idx) == -1)
+    if (readDirectory(fs.dir_idx) == -1)
     {
         return FAILURE;
     }
 
     //Read the FAT
-    if(readFAT(fs.fat_idx, fs.fat_len) == -1)
+    if (readFAT(fs.fat_idx, fs.fat_len) == -1)
     {
         return FAILURE;
     }
@@ -239,19 +237,19 @@ int mount_fs(char* disk_name)
 int umount_fs(char* disk_name)
 {
     //Write Updated Directory
-    if(writeDirectory(fs.dir_idx) == -1)
+    if (writeDirectory(fs.dir_idx) == -1)
     {
         return FAILURE;
     }
 
     //Write Updated FAT
-    if(writeFAT(fs.fat_idx, fs.fat_len) == -1)
+    if (writeFAT(fs.fat_idx, fs.fat_len) == -1)
     {
         return FAILURE;
     }
 
     //Close the disk
-    if(close_disk() == -1)
+    if (close_disk() == -1)
     {
         return FAILURE;
     }

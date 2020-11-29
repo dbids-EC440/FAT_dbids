@@ -14,16 +14,29 @@
 #define MAX_F_NAME   15        /* maximum size of file name                   */
 #define MAX_F_NUM    64        /* maximum number of files                     */
 #define MAX_FILDES   32        /* maximum number of file descriptors          */
-#define FAT_SIZE     8249      /* maximum number of entries in FAT             */
+#define FAT_SIZE     8245     /* maximum number of entries in FAT             */
 #define SUCCESS      0
 #define FAILURE      -1
 #define SUPERBLOCK_LOC 0       /* Fixed location of the super block on the virtual disk */
 #define META_END               /* End of meta information on disk */
 
-//Super Block: 10 bytes
-//DIR :        1792 bytes
-//DIR + Super Block --> 1802 bytes or 1 block
-//FAT : 5 blocks in meta --> 8192 blocks addressable but only 8185 remain + 64 eof = 8249
+#define DIR_IDX     1
+#define DIR_LEN     1
+#define FAT_IDX     2
+#define FAT_LEN     9
+#define DATA_IDX    11  
+/******Napkin Math******/
+/*
+    Super Block : "%4hu%4hu%4hu%4hu%4hu" : each %hu refers to a block with max 8192 = 4 chars.
+        Total 16 chars = 16 bytes = 1 Block
+    DIR : "%1d%16s%8d%4hu%2hhd" : %d->1 char, %s->16 chars, %d->33554432 max so 8 chars, %hu->4 chars, %hhd->2 chars
+        31 chars = 31 bytes per directory entry
+        Total 31*64chars = 1984bytes = 1 Block
+    FAT : "%4hu" = 4 chars per entry
+        8181 data blocks + 64 eof = 8245
+        Total 4*8245 = 32980 bytes = 9 blocks
+*/
+
 /******************************************************************************/
 int make_fs(char* disk_name);
 int mount_fs(char* disk_name);
