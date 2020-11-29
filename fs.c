@@ -30,9 +30,9 @@ struct file_descriptor
 };
 /******************************************************************************/
 struct super_block fs;
-struct file_descriptor fildes[MAX_FILDES]; // 32 
-unsigned short FAT[FAT_SIZE];                       // Will be populated with the FAT data
-struct dir_entry DIR[MAX_F_NUM];           // Will be populated with the directory data
+struct file_descriptor fildesArray[MAX_FILDES]; // 32 
+unsigned short FAT[FAT_SIZE];                   // Will be populated with the FAT data
+struct dir_entry DIR[MAX_F_NUM];                // Will be populated with the directory data
 
 //Writes the superblock to the disk based on the current fs
 int writeSuperBlock()
@@ -152,6 +152,7 @@ int readFAT(unsigned short fat_idx, unsigned int fat_len)
     return SUCCESS;
 }
 
+//Creates an empty file system on virtual disk with disk_name
 int make_fs(char* disk_name)
 {
     //Call make_disk
@@ -205,6 +206,7 @@ int make_fs(char* disk_name)
     return SUCCESS;
 }
 
+//Mounts fs from virtual disk disk_name
 int mount_fs(char* disk_name)
 {
     //Open the disk
@@ -231,9 +233,17 @@ int mount_fs(char* disk_name)
         return FAILURE;
     }
 
+    //Set all file descriptors to not used
+    int i;
+    for (i = 0; i < MAX_FILDES; i++)
+    {
+        fildesArray[i].used = 0;
+    }
+
     return SUCCESS;
 }
 
+//Unmounts fs from virtual disk disk_name
 int umount_fs(char* disk_name)
 {
     //Write Updated Directory
@@ -253,13 +263,66 @@ int umount_fs(char* disk_name)
     {
         return FAILURE;
     }
-   
-   return SUCCESS; 
+    
+    //Check that all file descriptors are not used
+    int i;
+    for (i = 0; i < MAX_FILDES; i++)
+    {
+        if(fildesArray[i].used)
+        {
+            return FAILURE;
+        }  
+    }
+    
+    return SUCCESS; 
 }
 
+//file specified by name is opened for reading/writing
 int fs_open(char* name)
 {
-    return FAILURE;
+    //Check the length of name
+    int length = strnlen(name, MAX_F_NAME+1);
+    if (length == MAX_F_NAME+1)
+    {
+        return FAILURE;
+    }
+    
+    //Find the next open file descriptor
+    int fildes;
+    for (fildes = 0; fildes < MAX_FILDES; fildes++)
+    {
+        if(!fildesArray[fildes].used)
+            break;
+    }
+    //Check that there was an open file descriptor
+    if (fildes == MAX_FILDES)
+    {
+        return FAILURE;
+    }
+
+    //Find the directory entry for this file
+    int directoryExists;
+    int d;
+    for (d = 0; (d < MAX_F_NUM) && (!directoryExists); d++)
+    {
+        if (strncmp(DIR[d].name, name, length) == 0)
+        {
+            directoryExists = 1;            
+        }            
+    }
+
+    //Check if a directory entry exists for the file (it should)
+    if (!directoryExists)
+    {
+        return FAILURE;
+    }
+
+    //Change directory ref count for the file and update file descriptor array
+    DIR[d].ref_cnt++;
+    fildesArray[fildes].file = DIR[d].head;
+    fildesArray[fildes].offset = 0;
+
+    return fildes;
 }
 
 int fs_close(int fildes)
@@ -269,7 +332,62 @@ int fs_close(int fildes)
 
 int fs_create(char* name)
 {
-    return FAILURE;
+    //Check the length of name
+    int length = strnlen(name, MAX_F_NAME+1);
+    if (length == MAX_F_NAME+1)
+    {
+        return FAILURE;
+    }
+    
+    //Simultaneously check that a directory entry doesn't exist for this file
+    //and that there are less than 64 files
+    int d;
+    int emptyDir = -1;
+    for (d = 0; (d < MAX_F_NUM); d++)
+    {
+        if (strcmp(DIR[d].name, name) == 0)
+        {
+            return FAILURE;          
+        }
+
+        if ((emptyDir == -1) && (!DIR[d].used))
+            emptyDir = d;
+    }
+    
+    //Check if there are already 64 files in use
+    if (emptyDir == -1)
+    {
+        return FAILURE;
+    }
+    
+    //Find the next open block to use
+    int b, f;
+    int emptyBlock = 0;
+    for (b = fs.data_idx; (b < DISK_BLOCKS) && (!emptyBlock); b++)
+    {
+        //Check if block b exists in the FAT
+        for (f = 0; (f < FAT_SIZE) && (FAT[f] != b); f++);
+        
+        //If it does not than we have found the first empty block
+        if (f == FAT_SIZE)
+            emptyBlock = b;
+    }
+    //Check that we have found an empty block
+    if (emptyBlock == 0)
+    {
+        return FAILURE;
+    }
+
+    //Allocate the directory information
+    DIR[emptyDir].used = 1;
+    strncpy(DIR[emptyDir].name, name, MAX_F_NAME+1);
+    DIR[emptyDir].size = 0;
+    DIR[emptyDir].head = emptyBlock;
+    DIR[emptyDir].ref_cnt = 0;
+
+    //Add the block to the FAT
+
+    return SUCCESS;
 }
 
 int fs_delete(char* name)
