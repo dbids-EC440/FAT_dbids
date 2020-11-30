@@ -37,7 +37,7 @@ struct dir_entry DIR[MAX_F_NUM];                // Will be populated with the di
 //Writes the superblock to the disk based on the current fs
 int writeSuperBlock()
 {
-    char buffer[BLOCK_SIZE];
+    char buffer[BLOCK_SIZE] = {0};
     sprintf(&buffer[0], "%4hu%4hu%4hu%4hu%4hu", fs.fat_idx, fs.fat_len, fs.dir_idx, fs.dir_len, fs.data_idx);
     
     if(block_write(SUPERBLOCK_LOC, &buffer[0]) == -1)
@@ -68,7 +68,7 @@ int writeDirectory(unsigned short dir_idx)
 {
     //Get all of the directory contents into a string
     int i;
-    int index;
+    int index = 0;
     char w_dir_str[BLOCK_SIZE] = {0};
     for (i = 0; i < MAX_F_NUM; i++)
     {
@@ -114,7 +114,7 @@ int writeFAT(unsigned short fat_idx, unsigned int fat_len)
     //Assmble the string representing the FAT
     int i;
     char FAT_str[FAT_LEN * BLOCK_SIZE] = {0};
-    int index;
+    int index = 0;
     for (i = 0; i < FAT_SIZE; i++)
     {
         index += sprintf(&FAT_str[index], "%4hu", FAT[i]);
@@ -150,6 +150,37 @@ int readFAT(unsigned short fat_idx, unsigned int fat_len)
         sscanf(&FAT_str[i], "%4hu", &FAT[i]);
 
     return SUCCESS;
+}
+
+//Reorganizes the FAT after something is removed from it, or a new block is allocated to a file
+//i.e. defragments it
+int FATsync()
+{
+    unsigned short emptyIndex;
+    int defrag = 0;
+    int i;
+    for (i = 0; i < FAT_SIZE; i++)
+    {
+        //Once an empty block is found, when you find the next file in the FAT, copy it
+        if (defrag && (FAT[i] != EMPTY))
+        {
+            while (FAT[i] != END_OF_FILE)
+            {
+                FAT[emptyIndex + i] = FAT[i];
+                i++;
+            }
+            FAT[emptyIndex + i] = FAT[i];
+            defrag = 0;
+        }
+        //If you find an empty block then set emptyIndex to it
+        else if (FAT[i] == EMPTY)
+        {
+            defrag = 1;
+            emptyIndex = i;
+        }        
+    }
+    
+    return -1;
 }
 
 //Creates an empty file system on virtual disk with disk_name
@@ -192,6 +223,10 @@ int make_fs(char* disk_name)
     }
 
     //Write Empty FAT
+    for (i = 0; i < FAT_SIZE; i++)
+    {
+        FAT[i] = EMPTY;
+    }
     if (writeFAT(fs.fat_idx, fs.fat_len) == -1)
     {
         return FAILURE;
@@ -277,7 +312,7 @@ int umount_fs(char* disk_name)
     return SUCCESS; 
 }
 
-//file specified by name is opened for reading/writing
+//File specified by name is opened for reading/writing
 int fs_open(char* name)
 {
     //Check the length of name
@@ -325,11 +360,28 @@ int fs_open(char* name)
     return fildes;
 }
 
+//File descriptor fildes is closed
 int fs_close(int fildes)
 {
-    return FAILURE;
+    //Check that the file descriptor is within the bounds
+    if ((fildes < 0) || (fildes >= MAX_FILDES))
+    {
+        return FAILURE;
+    }
+        
+    //Check that the file is open
+    if(!fildesArray[fildes].used) 
+    {
+        return FAILURE;
+    }    
+        
+    //Close the file descriptor
+    fildesArray[fildes].used = 0;
+
+    return SUCCESS;
 }
 
+//Creates a new file with name name in the fs
 int fs_create(char* name)
 {
     //Check the length of name
@@ -382,14 +434,30 @@ int fs_create(char* name)
     DIR[emptyDir].used = 1;
     strncpy(DIR[emptyDir].name, name, MAX_F_NAME+1);
     DIR[emptyDir].size = 0;
-    DIR[emptyDir].head = emptyBlock;
+    DIR[emptyDir].head = (unsigned short) emptyBlock;
     DIR[emptyDir].ref_cnt = 0;
 
+    //Find an empty index in the FAT
+    f = 0;
+    while (FAT[f] != EMPTY && (f < FAT_SIZE))
+    {
+         f++;
+    }
+    
+    //Check that if found a place in the FAT
+    if ((f >= FAT_SIZE) || (f+1 >= FAT_SIZE))
+    {
+        return FAILURE;
+    }
+
     //Add the block to the FAT
+    FAT[f] = (unsigned short) emptyBlock;
+    FAT[f+1] = END_OF_FILE;
 
     return SUCCESS;
 }
 
+//Deletes the file named name and frees all corresponding meta_info and data
 int fs_delete(char* name)
 {
     return FAILURE;

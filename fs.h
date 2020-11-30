@@ -19,12 +19,18 @@
 #define SUPERBLOCK_LOC 0       /* Fixed location of the super block on the virtual disk */
 #define META_END               /* End of meta information on disk */
 
+//Defined values for the superblock
 #define DIR_IDX     1
 #define DIR_LEN     1
 #define FAT_IDX     2
 #define FAT_LEN     9
 #define DATA_IDX    11  
-/******Napkin Math******/
+
+//Symbols used for EOF and N/A numbers in the FAT
+#define END_OF_FILE   9000
+#define EMPTY         9999
+
+/******Napkin Math for Meta Information******/
 /*
     Super Block : "%4hu%4hu%4hu%4hu%4hu" : each %hu refers to a block with max 8192 = 4 chars.
         Total 16 chars = 16 bytes = 1 Block
