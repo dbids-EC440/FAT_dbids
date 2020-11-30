@@ -154,7 +154,7 @@ int readFAT(unsigned short fat_idx, unsigned int fat_len)
 
 //Reorganizes the FAT after something is removed from it, or a new block is allocated to a file
 //i.e. defragments it
-int FATsync()
+int FATdefrag()
 {
     unsigned short emptyIndex;
     int defrag = 0;
@@ -167,9 +167,11 @@ int FATsync()
             while (FAT[i] != END_OF_FILE)
             {
                 FAT[emptyIndex + i] = FAT[i];
+                FAT[i] = EMPTY;
                 i++;
             }
             FAT[emptyIndex + i] = FAT[i];
+            FAT[i] = EMPTY;
             defrag = 0;
         }
         //If you find an empty block then set emptyIndex to it
@@ -460,7 +462,55 @@ int fs_create(char* name)
 //Deletes the file named name and frees all corresponding meta_info and data
 int fs_delete(char* name)
 {
-    return FAILURE;
+    //Check the length of name
+    int length = strnlen(name, MAX_F_NAME+1);
+    if (length == MAX_F_NAME+1)
+    {
+        return FAILURE;
+    }
+    
+    //Find the directory entry for this file
+    int directoryExists;
+    int d;
+    for (d = 0; (d < MAX_F_NUM) && (!directoryExists); d++)
+    {
+        if (strncmp(DIR[d].name, name, length) == 0)
+        {
+            directoryExists = 1;            
+        }            
+    }
+    //Check if a directory entry exists for the file (it should)
+    if (!directoryExists)
+    {
+        return FAILURE;
+    }
+
+    //Check that no file descriptor exists for name
+    if (DIR[d].ref_cnt > 0)
+    {
+        return FAILURE;
+    }
+    
+    //Remove the files blocks from the FAT
+    int f;
+    for (f = 0; f < FAT_SIZE; f++)
+    {
+        if (FAT[f] == DIR[d].head)
+        {
+            if (FAT[f] != END_OF_FILE)
+                (DIR[d].head)++;
+            
+            FAT[f] = EMPTY;
+        }
+    }
+
+    //Defragment the FAT
+    FATdefrag();
+
+    //Delete the directory information for this file (set to not used)
+    DIR[d].used = 0;
+
+    return SUCCESS;
 }
 
 int fs_read(int fildes, void* buf, size_t nbyte)
