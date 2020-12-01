@@ -157,27 +157,27 @@ int readFAT(unsigned short fat_idx, unsigned int fat_len)
 int FATdefrag()
 {
     unsigned short emptyIndex;
-    int defrag = 0;
+    int firstEmpty = 0;
     int i;
     for (i = 0; i < FAT_SIZE; i++)
     {
         //Once an empty block is found, when you find the next file in the FAT, copy it
-        if (defrag && (FAT[i] != EMPTY))
+        if (firstEmpty && (FAT[i] != EMPTY))
         {
+            int temp = i;
             while (FAT[i] != END_OF_FILE)
             {
-                FAT[emptyIndex + i] = FAT[i];
-                FAT[i] = EMPTY;
-                i++;
+                FAT[emptyIndex++] = FAT[i];
+                FAT[i++] = EMPTY;
             }
-            FAT[emptyIndex + i] = FAT[i];
+            FAT[emptyIndex] = END_OF_FILE;
             FAT[i] = EMPTY;
-            defrag = 0;
+            emptyIndex = temp;
         }
         //If you find an empty block then set emptyIndex to it
-        else if (FAT[i] == EMPTY)
+        else if (!firstEmpty && (FAT[i] == EMPTY))
         {
-            defrag = 1;
+            firstEmpty = 1;
             emptyIndex = i;
         }        
     }
@@ -446,7 +446,7 @@ int fs_create(char* name)
          f++;
     }
     
-    //Check that if found a place in the FAT
+    //Check if we found a place in the FAT
     if ((f >= FAT_SIZE) || (f+1 >= FAT_SIZE))
     {
         return FAILURE;
@@ -493,16 +493,17 @@ int fs_delete(char* name)
     
     //Remove the files blocks from the FAT
     int f;
-    for (f = 0; f < FAT_SIZE; f++)
+    for(f=0; (FAT[f] != DIR[d].head) && (f < FAT_SIZE); f++);   //Find the head of the file
+    if (f == FAT_SIZE)
     {
-        if (FAT[f] == DIR[d].head)
-        {
-            if (FAT[f] != END_OF_FILE)
-                (DIR[d].head)++;
-            
-            FAT[f] = EMPTY;
-        }
+        return FAILURE;
     }
+    while (FAT[f] != END_OF_FILE)   //Clear the whole file
+    {
+        FAT[f] = EMPTY;
+        f++;
+    }
+    FAT[f] = EMPTY; //clear END_OF_FILE index
 
     //Defragment the FAT
     FATdefrag();
