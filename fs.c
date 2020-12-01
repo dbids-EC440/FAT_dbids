@@ -358,6 +358,7 @@ int fs_open(char* name)
     DIR[d].ref_cnt++;
     fildesArray[fildes].file = DIR[d].head;
     fildesArray[fildes].offset = 0;
+    fildesArray[fildes].used = 1;
 
     return fildes;
 }
@@ -379,6 +380,17 @@ int fs_close(int fildes)
         
     //Close the file descriptor
     fildesArray[fildes].used = 0;
+
+    //Find the directory entry for the file
+    int d;
+    for (d = 0; (d < MAX_F_NUM); d++)
+    {
+        if((DIR[d].head == fildesArray[fildes].file) && (DIR[d].used))
+        {
+            DIR[d].ref_cnt--;
+            break;
+        }
+    }
 
     return SUCCESS;
 }
@@ -524,14 +536,61 @@ int fs_write(int fildes, void* buf, size_t nbyte)
     return FAILURE;
 }
 
+//Returns the size of file referrenced by fildes
 int fs_get_filesize(int fildes)
 {
+    //Check that the file descriptor is valid
+    if (!fildesArray[fildes].used)
+    {
+        return FAILURE;
+    }
+    
+    //Find the directory entry for the file
+    int d;
+    for (d = 0; (d < MAX_F_NUM); d++)
+    {
+        if((DIR[d].head == fildesArray[fildes].file) && (DIR[d].used))
+        {
+            //Return that entries size
+            return DIR[d].size;
+        }
+    }
+
     return FAILURE;
 }
 
+//Creates and populates an array of file names currently known to the fs
 int fs_listfiles(char*** files)
 {
-    return FAILURE;
+    //Count the number of used directory entries
+    int numberOfFiles = 0;
+    int d;
+    for (d = 0; (d < MAX_F_NUM); d++)
+        if(DIR[d].used)
+            numberOfFiles++;
+    
+    //Allocate memory dynamically for the array
+    *files = (char**) calloc(numberOfFiles+1, sizeof(char*));
+    int i;
+    for (i = 0; i < numberOfFiles; i++)
+    {
+        files[0][i] = (char*) calloc((MAX_F_NAME+1), sizeof(char));
+    }
+    files[0][numberOfFiles] = (char*) malloc(sizeof(char));
+
+    //Fill in the array
+    i = 0;
+    for (d = 0; (d < MAX_F_NUM); d++)
+    {
+        if(DIR[d].used)
+        {
+            strncpy(files[0][i], DIR[d].name, sizeof(char[MAX_F_NAME + 1]));
+            i++;
+        }
+    }
+    files[0][numberOfFiles] = NULL;
+
+    return SUCCESS;
 }
 
 int fs_lseek(int fildes, off_t offset)
