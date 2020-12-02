@@ -154,7 +154,7 @@ int readFAT(unsigned short fat_idx, unsigned int fat_len)
 
 //Reorganizes the FAT after something is removed from it, or a new block is allocated to a file
 //i.e. defragments it
-int FATdefrag()
+void FATdefrag()
 {
     unsigned short emptyIndex;
     int firstEmpty = 0;
@@ -181,8 +181,6 @@ int FATdefrag()
             emptyIndex = i;
         }        
     }
-    
-    return -1;
 }
 
 //Creates an empty file system on virtual disk with disk_name
@@ -526,14 +524,233 @@ int fs_delete(char* name)
     return SUCCESS;
 }
 
+//Read nbyte bytes of data from file specified by fildes into buf
 int fs_read(int fildes, void* buf, size_t nbyte)
 {
-    return FAILURE;
+    //Check that the file descriptor is within the bounds
+    if ((fildes < 0) || (fildes >= MAX_FILDES))
+    {
+        return FAILURE;
+    }
+        
+    //Check that the file is open
+    if(!fildesArray[fildes].used) 
+    {
+        return FAILURE;
+    }
+
+    //Find the directory entry for the file
+    int d;
+    for (d = 0; (d < MAX_F_NUM); d++)
+    {
+        if((DIR[d].head == fildesArray[fildes].file) && (DIR[d].used))
+        {
+            break;
+        }
+    }
+
+    //Adjust nbytes to fit the size of the file in actuallity
+    if ((nbyte+fildesArray[fildes].offset) > DIR[d].size)
+    {
+        nbyte = DIR[d].size - fildesArray[fildes].offset;
+    }
+
+    //Check for offset at the end of the file
+    if(nbyte == 0)
+    {
+        return 0;
+    }
+
+    //Determine how many blocks need to be read from the file
+    int blockNum = ((nbyte + fildesArray[fildes].offset) / BLOCK_SIZE)  \
+                + (((nbyte + fildesArray[fildes].offset) % BLOCK_SIZE) != 0);
+
+    //Search the FAT for the correct block to read first
+    int f;
+    for (f = 0; f < FAT_SIZE; f++)
+    {
+        if (FAT[f] == fildesArray[fildes].file)
+            break;
+    }
+    //Index to the correct offset block
+    f += (fildesArray[fildes].offset / BLOCK_SIZE);
+
+    //Read to readBuffer from the disk
+    char* readBuffer = malloc(BLOCK_SIZE*blockNum);
+    int i;
+    for (i = 0; (FAT[f] != END_OF_FILE) && (i< blockNum); f++, i++)
+    {
+        block_read(FAT[f], &readBuffer[i*BLOCK_SIZE]);
+    }
+
+    //Copy the correct section of readBuffer
+    //buf = malloc(nbyte);
+    strncpy((char*) buf, &readBuffer[fildesArray[fildes].offset], nbyte);
+
+    //Implicitly increment offset
+    fildesArray[fildes].offset += nbyte;
+
+    free(readBuffer);
+
+    return nbyte;
 }
 
+//Writes nbytes of data to fildes from buf
 int fs_write(int fildes, void* buf, size_t nbyte)
 {
-    return FAILURE;
+    //Check that the file descriptor is within the bounds
+    if ((fildes < 0) || (fildes >= MAX_FILDES))
+    {
+        return FAILURE;
+    }
+        
+    //Check that the file is open
+    if(!fildesArray[fildes].used) 
+    {
+        return FAILURE;
+    }
+
+    //Find the directory entry for the file
+    int d;
+    for (d = 0; (d < MAX_F_NUM); d++)
+    {
+        if((DIR[d].head == fildesArray[fildes].file) && (DIR[d].used))
+        {
+            break;
+        }
+    }
+
+    //Check if nbyte is within the number of blocks allocated to the file
+    int f;
+    unsigned short* FAT_entry_cpy;
+    int blockNum = ((DIR[d].size) / BLOCK_SIZE) + (((DIR[d].size) % BLOCK_SIZE) != 0);
+    if ((nbyte+fildesArray[fildes].offset) > (blockNum*BLOCK_SIZE))
+    {
+        //We need to allocate more blocks to the file (if there is space on disk)
+
+        //Get the start of the entry to the FAT for the file
+        FAT_entry_cpy = calloc(blockNum + 1, sizeof(unsigned short));
+        for (f = 0; f < FAT_SIZE; f++)
+        {
+            if (FAT[f] == fildesArray[fildes].file)
+                break;
+        }
+
+        //"Cut" the entry from the FAT
+        int i;
+        while((f < FAT_SIZE) && (FAT[f] != END_OF_FILE))
+        {
+            FAT_entry_cpy[i++] = FAT[f];
+            FAT[f++] = EMPTY;
+        }
+        FAT_entry_cpy[i] = END_OF_FILE;
+
+        //Defragment the FAT to fill in the newly created empty space in the FAT
+        FATdefrag();
+
+        //Find the next empty slot in the FAT and fill it with our copy
+        for (f = f-i; f < FAT_SIZE; f++) //start f from where we found the file
+        {
+            if (FAT[f] == EMPTY)
+                break;
+        }
+        for (i=0; i < (blockNum+1); i++)
+        {
+            FAT[f++] = FAT_entry_cpy[i];
+        }
+        free(FAT_entry_cpy);
+
+        //Calculate the number of blocks we need to add if possible
+        int addBlocks = blockNum;
+        blockNum = ((nbyte + fildesArray[fildes].offset) / BLOCK_SIZE)  \
+                + (((nbyte + fildesArray[fildes].offset) % BLOCK_SIZE) != 0);
+        addBlocks = blockNum - addBlocks;
+
+        f--; //This is now the current location of END_OF_FILE for the file
+
+        //Loop through the number of blocks we need to add
+        int k;
+        for (k = 0; k < addBlocks; k++)
+        {
+            //Find the next empty block to use
+            int b, j;
+            int emptyBlock = 0;
+            for (b = fs.data_idx; (b < DISK_BLOCKS) && (!emptyBlock); b++)
+            {
+                //Check if block b exists in the FAT
+                for (j = 0; (j < FAT_SIZE) && (FAT[j] != b); j++);
+                
+                //If it does not than we have found the first empty block
+                if (j == FAT_SIZE)
+                    emptyBlock = b;
+            }
+
+            //Check that we have found an empty block
+            if (emptyBlock == 0)
+            {
+                break;
+            }
+
+            //Add the empty block to the FAT entry for this file
+            FAT[f++] = b;
+        }
+        //Check if we ran out of disk space
+        if (k < addBlocks)
+        {
+            blockNum -= (addBlocks - k);
+            nbyte = (blockNum*BLOCK_SIZE) - fildesArray[fildes].offset;
+        }
+        FAT[f] = END_OF_FILE;
+    }
+    
+    //Actually do the writing
+    int buffer_iterator = 0;
+
+    //Find the block which contains the offset
+    char blockBuffer[BLOCK_SIZE] = {0};
+    for (f = 0; f < FAT_SIZE; f++)
+    {
+        if (FAT[f] == fildesArray[fildes].file)
+            break;
+    }
+    f += fildesArray[fildes].offset / BLOCK_SIZE; 
+
+    //Read the block which contains the offset if needed
+    int firstBlockWriteBytes = BLOCK_SIZE - (fildesArray[fildes].offset % BLOCK_SIZE);
+    if (firstBlockWriteBytes)
+    {
+        block_read(FAT[f], &blockBuffer[0]);
+
+        //Check that the number of bytes to write is not less than the end of the block
+        if (firstBlockWriteBytes > nbyte)
+        {
+            firstBlockWriteBytes = nbyte;
+        }
+
+        //Write the needed data to the first block
+        strncpy(&blockBuffer[0], buf + buffer_iterator, firstBlockWriteBytes);
+        buffer_iterator += firstBlockWriteBytes;
+        block_write(FAT[f], &blockBuffer[0]);
+    }   
+    
+    //Write the rest of the data a block at a time
+    for (++f; (buffer_iterator < nbyte) && (FAT[f] != END_OF_FILE); f++)
+    {
+        if((buffer_iterator + BLOCK_SIZE) < nbyte)
+        {
+            strncpy(&blockBuffer[0], buf + buffer_iterator, BLOCK_SIZE);
+            buffer_iterator += BLOCK_SIZE;
+        }
+        else
+        {
+            memset(&blockBuffer[0], 0, BLOCK_SIZE);
+            strncpy(&blockBuffer[0], buf + buffer_iterator, nbyte - buffer_iterator);
+        }
+
+        block_write(FAT[f], &blockBuffer[0]);
+    }
+
+    return nbyte;
 }
 
 //Returns the size of file referrenced by fildes
