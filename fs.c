@@ -312,87 +312,6 @@ int umount_fs(char* disk_name)
     return SUCCESS; 
 }
 
-//File specified by name is opened for reading/writing
-int fs_open(char* name)
-{
-    //Check the length of name
-    int length = strnlen(name, MAX_F_NAME+1);
-    if (length == MAX_F_NAME+1)
-    {
-        return FAILURE;
-    }
-    
-    //Find the next open file descriptor
-    int fildes;
-    for (fildes = 0; fildes < MAX_FILDES; fildes++)
-    {
-        if(!fildesArray[fildes].used)
-            break;
-    }
-    //Check that there was an open file descriptor
-    if (fildes == MAX_FILDES)
-    {
-        return FAILURE;
-    }
-
-    //Find the directory entry for this file
-    int directoryExists;
-    int d;
-    for (d = 0; (d < MAX_F_NUM) && (!directoryExists); d++)
-    {
-        if (strncmp(DIR[d].name, name, length) == 0)
-        {
-            directoryExists = 1;            
-        }            
-    }
-
-    //Check if a directory entry exists for the file (it should)
-    if (!directoryExists)
-    {
-        return FAILURE;
-    }
-
-    //Change directory ref count for the file and update file descriptor array
-    DIR[d].ref_cnt++;
-    fildesArray[fildes].file = DIR[d].head;
-    fildesArray[fildes].offset = 0;
-    fildesArray[fildes].used = 1;
-
-    return fildes;
-}
-
-//File descriptor fildes is closed
-int fs_close(int fildes)
-{
-    //Check that the file descriptor is within the bounds
-    if ((fildes < 0) || (fildes >= MAX_FILDES))
-    {
-        return FAILURE;
-    }
-        
-    //Check that the file is open
-    if(!fildesArray[fildes].used) 
-    {
-        return FAILURE;
-    }    
-        
-    //Close the file descriptor
-    fildesArray[fildes].used = 0;
-
-    //Find the directory entry for the file
-    int d;
-    for (d = 0; (d < MAX_F_NUM); d++)
-    {
-        if((DIR[d].head == fildesArray[fildes].file) && (DIR[d].used))
-        {
-            DIR[d].ref_cnt--;
-            break;
-        }
-    }
-
-    return SUCCESS;
-}
-
 //Creates a new file with name name in the fs
 int fs_create(char* name)
 {
@@ -480,17 +399,13 @@ int fs_delete(char* name)
     }
     
     //Find the directory entry for this file
-    int directoryExists;
     int d;
-    for (d = 0; (d < MAX_F_NUM) && (!directoryExists); d++)
-    {
+    for (d = 0; (d < MAX_F_NUM); d++)
         if (strncmp(DIR[d].name, name, length) == 0)
-        {
-            directoryExists = 1;            
-        }            
-    }
+            break;
+    
     //Check if a directory entry exists for the file (it should)
-    if (!directoryExists)
+    if (d == MAX_F_NUM)
     {
         return FAILURE;
     }
@@ -518,8 +433,85 @@ int fs_delete(char* name)
     //Defragment the FAT
     FATdefrag();
 
-    //Delete the directory information for this file (set to not used)
+    //Delete the directory information for this file
     DIR[d].used = 0;
+    memset(DIR[d].name, 0, sizeof(DIR[d].name));
+
+    return SUCCESS;
+}
+
+//File specified by name is opened for reading/writing
+int fs_open(char* name)
+{
+    //Check the length of name
+    int length = strnlen(name, MAX_F_NAME+1);
+    if (length == MAX_F_NAME+1)
+    {
+        return FAILURE;
+    }
+    
+    //Find the next open file descriptor
+    int fildes;
+    for (fildes = 0; fildes < MAX_FILDES; fildes++)
+    {
+        if(!fildesArray[fildes].used)
+            break;
+    }
+    //Check that there was an open file descriptor
+    if (fildes == MAX_FILDES)
+    {
+        return FAILURE;
+    }
+
+    //Find the directory entry for this file
+    int d;
+    for (d = 0; (d < MAX_F_NUM); d++)
+        if (strncmp(DIR[d].name, name, length) == 0)
+            break;
+    
+    //Check if a directory entry exists for the file (it should)
+    if (d == MAX_F_NUM)
+    {
+        return FAILURE;
+    }
+
+    //Change directory ref count for the file and update file descriptor array
+    DIR[d].ref_cnt++;
+    fildesArray[fildes].file = DIR[d].head;
+    fildesArray[fildes].offset = 0;
+    fildesArray[fildes].used = 1;
+
+    return fildes;
+}
+
+//File descriptor fildes is closed
+int fs_close(int fildes)
+{
+    //Check that the file descriptor is within the bounds
+    if ((fildes < 0) || (fildes >= MAX_FILDES))
+    {
+        return FAILURE;
+    }
+        
+    //Check that the file is open
+    if(!fildesArray[fildes].used) 
+    {
+        return FAILURE;
+    }    
+        
+    //Close the file descriptor
+    fildesArray[fildes].used = 0;
+
+    //Find the directory entry for the file
+    int d;
+    for (d = 0; (d < MAX_F_NUM); d++)
+    {
+        if((DIR[d].head == fildesArray[fildes].file) && (DIR[d].used))
+        {
+            DIR[d].ref_cnt--;
+            break;
+        }
+    }
 
     return SUCCESS;
 }
@@ -634,11 +626,14 @@ int fs_write(int fildes, void* buf, size_t nbyte)
     for (f = 0; f < FAT_SIZE; f++)
             if (FAT[f] == fildesArray[fildes].file)
                 break;
+    
+    //Calculate the number of blocks needed and allocated to the file
+    int blocksRequired = ((fildesArray[fildes].offset + nbyte) / BLOCK_SIZE)  \
+                        + (((fildesArray[fildes].offset + nbyte) % BLOCK_SIZE) != 0);
+    int fileBlocks = ((DIR[d].size) / BLOCK_SIZE) + (((DIR[d].size) % BLOCK_SIZE) != 0);
+    if (fileBlocks == 0) fileBlocks = 1;
 
     //Check if nbyte is within the number of blocks allocated to the file
-    int blocksRequired = (((fildesArray[fildes].offset + nbyte) / BLOCK_SIZE)  \
-                        + ((fildesArray[fildes].offset + nbyte) % BLOCK_SIZE) != 0);
-    int fileBlocks = ((DIR[d].size) / BLOCK_SIZE) + (((DIR[d].size) % BLOCK_SIZE) != 0);
     if (blocksRequired > fileBlocks)
     {
         //We need to allocate more blocks to the file (if there is space on disk)
@@ -651,6 +646,7 @@ int fs_write(int fildes, void* buf, size_t nbyte)
             FAT[f++] = EMPTY;
         }
         FAT_entry_cpy[i] = END_OF_FILE;
+        FAT[f] = EMPTY;
 
         //Defragment the FAT to fill in the newly created empty space in the FAT
         FATdefrag();
@@ -692,7 +688,7 @@ int fs_write(int fildes, void* buf, size_t nbyte)
                 break;
 
             //Add the empty block to the FAT entry for this file
-            FAT[f++] = b;
+            FAT[f++] = emptyBlock;
         }
         //Check if we ran out of disk space
         if (i < addBlocks)
@@ -726,7 +722,7 @@ int fs_write(int fildes, void* buf, size_t nbyte)
         }
 
         //Write the needed data to the first block
-        strncpy(&blockBuffer[0], buf, firstBlockWriteBytes);
+        strncpy(&blockBuffer[firstblock_offset], buf, firstBlockWriteBytes);
         block_write(FAT[f], &blockBuffer[0]);
 
         //Update iterators
@@ -761,8 +757,14 @@ int fs_write(int fildes, void* buf, size_t nbyte)
 //Returns the size of file referrenced by fildes
 int fs_get_filesize(int fildes)
 {
-    //Check that the file descriptor is valid
-    if (!fildesArray[fildes].used)
+    //Check that the file descriptor is within the bounds
+    if ((fildes < 0) || (fildes >= MAX_FILDES))
+    {
+        return FAILURE;
+    }
+        
+    //Check that the file is open
+    if(!fildesArray[fildes].used) 
     {
         return FAILURE;
     }
@@ -815,11 +817,45 @@ int fs_listfiles(char*** files)
     return SUCCESS;
 }
 
+//Sets the file pointer to offset, but not beyond EOF
 int fs_lseek(int fildes, off_t offset)
 {
-    return FAILURE;
+    //Check that the file descriptor is within the bounds
+    if ((fildes < 0) || (fildes >= MAX_FILDES))
+    {
+        return FAILURE;
+    }
+        
+    //Check that the file is open
+    if(!fildesArray[fildes].used) 
+    {
+        return FAILURE;
+    }
+
+    //Find the directory entry for the file
+    int d;
+    for (d = 0; (d < MAX_F_NUM); d++)
+        if((DIR[d].head == fildesArray[fildes].file) && (DIR[d].used))
+            break;
+    
+    //Check that it found a directory entry
+    if (d == MAX_F_NUM)
+    {
+        return FAILURE;
+    }
+
+    //Check that the offset is less than the file size (not seeking beyond the file)
+    if((offset < 0) || (DIR[d].size < offset))
+    {
+        return FAILURE;
+    }
+
+    //Actually lseek!
+    fildesArray[fildes].offset = offset;
+    return 0;
 }
 
+//
 int fs_truncate(int fildes, off_t length)
 {
     return FAILURE;
