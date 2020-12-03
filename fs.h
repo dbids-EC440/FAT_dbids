@@ -17,7 +17,6 @@
 #define SUCCESS      0
 #define FAILURE      -1
 #define SUPERBLOCK_LOC 0       /* Fixed location of the super block on the virtual disk */
-#define META_END               /* End of meta information on disk */
 
 //Defined values for the superblock
 #define DIR_IDX     1
