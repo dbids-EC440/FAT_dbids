@@ -855,8 +855,63 @@ int fs_lseek(int fildes, off_t offset)
     return 0;
 }
 
-//
+//file fildes truncated to length bytes
 int fs_truncate(int fildes, off_t length)
 {
-    return FAILURE;
+    //Check that the file descriptor is within the bounds
+    if ((fildes < 0) || (fildes >= MAX_FILDES))
+    {
+        return FAILURE;
+    }
+        
+    //Check that the file is open
+    if(!fildesArray[fildes].used) 
+    {
+        return FAILURE;
+    }
+
+    //Find the directory entry for the file
+    int d;
+    for (d = 0; (d < MAX_F_NUM); d++)
+        if((DIR[d].head == fildesArray[fildes].file) && (DIR[d].used))
+            break;
+    
+    //Check that it found a directory entry
+    if (d == MAX_F_NUM)
+    {
+        return FAILURE;
+    }
+
+    //Check if length > file size
+    if (length > DIR[d].size)
+    {
+        return FAILURE;
+    }
+
+    //Get the start of the entry to the FAT for the file
+    int f;
+    for (f = 0; f < FAT_SIZE; f++)
+            if (FAT[f] == fildesArray[fildes].file)
+                break;
+
+    //Remove uneccessary blocks from the FAT (if needed)
+    int newBlockNum = (length / BLOCK_SIZE) + ((length % BLOCK_SIZE) != 0);
+    int fileBlocks = ((DIR[d].size) / BLOCK_SIZE) + (((DIR[d].size) % BLOCK_SIZE) != 0);
+    if (newBlockNum > fileBlocks)
+    {
+        f += newBlockNum;
+        FAT[f] = END_OF_FILE;
+        f++;
+        for (; f < fileBlocks; f++)
+        {
+            FAT[f] = EMPTY;
+        }
+    }
+    
+    //Remove introduced spaces in the FAT
+    FATdefrag();
+
+    DIR[d].size = length;
+
+    return 0;
 }
