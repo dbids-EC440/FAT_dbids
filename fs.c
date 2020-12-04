@@ -225,6 +225,24 @@ int findEmptyBlock()
     return emptyBlock;
 }
 
+//Finds a directory entry given a fildes
+int findDirectoryEntry(int fildes)
+{
+    //Find the directory entry for the file
+    int d;
+    for (d = 0; (d < MAX_F_NUM); d++)
+        if((DIR[d].head == fildesArray[fildes].file) && (DIR[d].used))
+            break;
+    
+    //Check that it found a directory entry
+    if (d == MAX_F_NUM)
+    {
+        return FAILURE;
+    }
+
+    return d;
+}
+
 //Creates an empty file system on virtual disk with disk_name
 int make_fs(char* disk_name)
 {
@@ -523,31 +541,24 @@ int fs_open(char* name)
 //File descriptor fildes is closed
 int fs_close(int fildes)
 {
-    //Check that the file descriptor is within the bounds
-    if ((fildes < 0) || (fildes >= MAX_FILDES))
+    //Check that the file descriptor is within the bounds, and open
+    if ((fildes < 0) || (fildes >= MAX_FILDES) || (!fildesArray[fildes].used))
     {
         return FAILURE;
-    }
-        
-    //Check that the file is open
-    if(!fildesArray[fildes].used) 
-    {
-        return FAILURE;
-    }    
+    }   
         
     //Close the file descriptor
     fildesArray[fildes].used = 0;
 
     //Find the directory entry for the file
-    int d;
-    for (d = 0; (d < MAX_F_NUM); d++)
+    int d = findDirectoryEntry(fildes);
+    if (d == FAILURE)
     {
-        if((DIR[d].head == fildesArray[fildes].file) && (DIR[d].used))
-        {
-            DIR[d].ref_cnt--;
-            break;
-        }
+        return FAILURE;
     }
+
+    //Decrement the ref count
+    DIR[d].ref_cnt--;
 
     return SUCCESS;
 }
@@ -555,26 +566,15 @@ int fs_close(int fildes)
 //Read nbyte bytes of data from file specified by fildes into buf
 int fs_read(int fildes, void* buf, size_t nbyte)
 {
-    //Check that the file descriptor is within the bounds
-    if ((fildes < 0) || (fildes >= MAX_FILDES))
-    {
-        return FAILURE;
-    }
-        
-    //Check that the file is open
-    if(!fildesArray[fildes].used) 
+    //Check that the file descriptor is within the bounds, and open
+    if ((fildes < 0) || (fildes >= MAX_FILDES) || (!fildesArray[fildes].used))
     {
         return FAILURE;
     }
 
     //Find the directory entry for the file
-    int d;
-    for (d = 0; (d < MAX_F_NUM); d++)
-        if((DIR[d].head == fildesArray[fildes].file) && (DIR[d].used))
-            break;
-    
-    //Check that it found a directory entry
-    if (d == MAX_F_NUM)
+    int d = findDirectoryEntry(fildes);
+    if (d == FAILURE)
     {
         return FAILURE;
     }
@@ -630,25 +630,15 @@ int fs_read(int fildes, void* buf, size_t nbyte)
 //Writes nbytes of data to fildes from buf
 int fs_write(int fildes, void* buf, size_t nbyte)
 { 
-    //Check that the file descriptor is within the bounds
-    if ((fildes < 0) || (fildes >= MAX_FILDES))
-    {
-        return FAILURE;
-    }
-        
-    //Check that the file is open
-    if(!fildesArray[fildes].used) 
+    //Check that the file descriptor is within the bounds, and open
+    if ((fildes < 0) || (fildes >= MAX_FILDES) || (!fildesArray[fildes].used))
     {
         return FAILURE;
     }
 
     //Find the directory entry for the file
-    int d;
-    for (d = 0; (d < MAX_F_NUM); d++)
-        if((DIR[d].head == fildesArray[fildes].file) && (DIR[d].used))
-            break;
-    //Check that it found a directory entry
-    if (d == MAX_F_NUM)
+    int d = findDirectoryEntry(fildes);
+    if (d == FAILURE)
     {
         return FAILURE;
     }
@@ -795,30 +785,20 @@ int fs_write(int fildes, void* buf, size_t nbyte)
 //Returns the size of file referrenced by fildes
 int fs_get_filesize(int fildes)
 {
-    //Check that the file descriptor is within the bounds
-    if ((fildes < 0) || (fildes >= MAX_FILDES))
-    {
-        return FAILURE;
-    }
-        
-    //Check that the file is open
-    if(!fildesArray[fildes].used) 
+    //Check that the file descriptor is within the bounds, and open
+    if ((fildes < 0) || (fildes >= MAX_FILDES) || (!fildesArray[fildes].used))
     {
         return FAILURE;
     }
     
     //Find the directory entry for the file
-    int d;
-    for (d = 0; (d < MAX_F_NUM); d++)
+    int d = findDirectoryEntry(fildes);
+    if (d == FAILURE)
     {
-        if((DIR[d].head == fildesArray[fildes].file) && (DIR[d].used))
-        {
-            //Return that entries size
-            return DIR[d].size;
-        }
+        return FAILURE;
     }
 
-    return FAILURE;
+    return DIR[d].size;
 }
 
 //Creates and populates an array of file names currently known to the fs
@@ -858,26 +838,15 @@ int fs_listfiles(char*** files)
 //Sets the file pointer to offset, but not beyond EOF
 int fs_lseek(int fildes, off_t offset)
 {
-    //Check that the file descriptor is within the bounds
-    if ((fildes < 0) || (fildes >= MAX_FILDES))
-    {
-        return FAILURE;
-    }
-        
-    //Check that the file is open
-    if(!fildesArray[fildes].used) 
+    //Check that the file descriptor is within the bounds, and open
+    if ((fildes < 0) || (fildes >= MAX_FILDES) || (!fildesArray[fildes].used))
     {
         return FAILURE;
     }
 
     //Find the directory entry for the file
-    int d;
-    for (d = 0; (d < MAX_F_NUM); d++)
-        if((DIR[d].head == fildesArray[fildes].file) && (DIR[d].used))
-            break;
-    
-    //Check that it found a directory entry
-    if (d == MAX_F_NUM)
+    int d = findDirectoryEntry(fildes);
+    if (d == FAILURE)
     {
         return FAILURE;
     }
@@ -896,26 +865,15 @@ int fs_lseek(int fildes, off_t offset)
 //file fildes truncated to length bytes
 int fs_truncate(int fildes, off_t length)
 {
-    //Check that the file descriptor is within the bounds
-    if ((fildes < 0) || (fildes >= MAX_FILDES))
-    {
-        return FAILURE;
-    }
-        
-    //Check that the file is open
-    if(!fildesArray[fildes].used) 
+    //Check that the file descriptor is within the bounds, and open
+    if ((fildes < 0) || (fildes >= MAX_FILDES) || (!fildesArray[fildes].used))
     {
         return FAILURE;
     }
 
     //Find the directory entry for the file
-    int d;
-    for (d = 0; (d < MAX_F_NUM); d++)
-        if((DIR[d].head == fildesArray[fildes].file) && (DIR[d].used))
-            break;
-    
-    //Check that it found a directory entry
-    if (d == MAX_F_NUM)
+    int d = findDirectoryEntry(fildes);
+    if (d == FAILURE)
     {
         return FAILURE;
     }
