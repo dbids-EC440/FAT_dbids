@@ -32,7 +32,7 @@ struct file_descriptor
 struct super_block fs;
 struct file_descriptor fildesArray[MAX_FILDES]; // 32 
 unsigned short FAT[FAT_SIZE];                   // Will be populated with the FAT data
-struct dir_entry DIR[MAX_F_NUM];                // Will be populated with the directory data
+struct dir_entry DIR[MAX_F_NUM];                // Will be populated with the directory data                           
 
 //Writes the superblock to the disk based on the current fs
 int writeSuperBlock()
@@ -155,7 +155,7 @@ int readFAT(unsigned short fat_idx, unsigned int fat_len)
 //Reorganizes the FAT after something is removed from it, or a new block is allocated to a file
 //i.e. defragments it
 void FATdefrag()
-{
+{    
     unsigned short emptyIndex;
     int firstEmpty = 0;
     int i;
@@ -181,6 +181,48 @@ void FATdefrag()
             emptyIndex = i;
         }        
     }
+}
+
+//Finds the next empty block in the file system
+int findEmptyBlock()
+{
+    //Find the next empty block to use
+    int b, j;
+    int emptyBlock = 0;
+    static int previousBlock = DATA_IDX; // Used to improve runtime of finding the next empty block
+
+    //See if block after previous is free first
+    for (b = (previousBlock+1); (b < DISK_BLOCKS) && (!emptyBlock); b++)
+    {
+        //Check if block b exists in the FAT
+        for (j = 0; (j < FAT_SIZE) && (FAT[j] != b); j++);
+        
+        //If it does not than we have found the first empty block
+        if (j == FAT_SIZE)
+        {
+            emptyBlock = b;
+            previousBlock = b;
+        }
+    }
+
+    //If that didn't work then check all the previous blocks
+    if(!emptyBlock)
+    {
+        for (b = fs.data_idx; (b < (previousBlock+1)) && (!emptyBlock); b++)
+        {
+            //Check if block b exists in the FAT
+            for (j = 0; (j < FAT_SIZE) && (FAT[j] != b); j++);
+            
+            //If it does not than we have found the first empty block
+            if (j == FAT_SIZE)
+            {
+                emptyBlock = b;
+                previousBlock = b;
+            }
+        } 
+    }
+
+    return emptyBlock;
 }
 
 //Creates an empty file system on virtual disk with disk_name
@@ -328,9 +370,12 @@ int fs_create(char* name)
     int emptyDir = -1;
     for (d = 0; (d < MAX_F_NUM); d++)
     {
-        if (strcmp(DIR[d].name, name) == 0)
+        if (DIR[d].used)
         {
-            return FAILURE;          
+            if (strcmp(DIR[d].name, name) == 0)
+            {
+                return FAILURE;          
+            }
         }
 
         if ((emptyDir == -1) && (!DIR[d].used))
@@ -344,17 +389,8 @@ int fs_create(char* name)
     }
     
     //Find the next open block to use
-    int b, f;
-    int emptyBlock = 0;
-    for (b = fs.data_idx; (b < DISK_BLOCKS) && (!emptyBlock); b++)
-    {
-        //Check if block b exists in the FAT
-        for (f = 0; (f < FAT_SIZE) && (FAT[f] != b); f++);
-        
-        //If it does not than we have found the first empty block
-        if (f == FAT_SIZE)
-            emptyBlock = b;
-    }
+    int emptyBlock = findEmptyBlock();
+    
     //Check that we have found an empty block
     if (emptyBlock == 0)
     {
@@ -369,7 +405,7 @@ int fs_create(char* name)
     DIR[emptyDir].ref_cnt = 0;
 
     //Find an empty index in the FAT
-    f = 0;
+    int f = 0;
     while (FAT[f] != EMPTY && (f < FAT_SIZE))
     {
          f++;
@@ -593,7 +629,7 @@ int fs_read(int fildes, void* buf, size_t nbyte)
 
 //Writes nbytes of data to fildes from buf
 int fs_write(int fildes, void* buf, size_t nbyte)
-{
+{ 
     //Check that the file descriptor is within the bounds
     if ((fildes < 0) || (fildes >= MAX_FILDES))
     {
@@ -626,7 +662,7 @@ int fs_write(int fildes, void* buf, size_t nbyte)
     for (f = 0; f < FAT_SIZE; f++)
             if (FAT[f] == fildesArray[fildes].file)
                 break;
-    
+
     //Calculate the number of blocks needed and allocated to the file
     int blocksRequired = ((fildesArray[fildes].offset + nbyte) / BLOCK_SIZE)  \
                         + (((fildesArray[fildes].offset + nbyte) % BLOCK_SIZE) != 0);
@@ -667,21 +703,16 @@ int fs_write(int fildes, void* buf, size_t nbyte)
         int addBlocks =  blocksRequired - fileBlocks;
 
         f--; //This is now the current location of END_OF_FILE for the file
+
         //Loop through the number of blocks we need to add
+        //clock_t first = clock();
+        //clock_t tic, toc;
         for (i = 0; i < addBlocks; i++)
         {
+            //tic = clock();
+
             //Find the next empty block to use
-            int b, j;
-            int emptyBlock = 0;
-            for (b = fs.data_idx; (b < DISK_BLOCKS) && (!emptyBlock); b++)
-            {
-                //Check if block b exists in the FAT
-                for (j = 0; (j < FAT_SIZE) && (FAT[j] != b); j++);
-                
-                //If it does not than we have found the first empty block
-                if (j == FAT_SIZE)
-                    emptyBlock = b;
-            }
+            int emptyBlock = findEmptyBlock();
 
             //Check that we have found an empty block
             if (emptyBlock == 0)
@@ -689,7 +720,14 @@ int fs_write(int fildes, void* buf, size_t nbyte)
 
             //Add the empty block to the FAT entry for this file
             FAT[f++] = emptyBlock;
+
+            //toc = clock();
+            //if (i % addBlocks == 0)
+                //printf("single loop elapsed: %f seconds\n", (double)(toc - tic) / CLOCKS_PER_SEC);
         }
+        //clock_t second = clock();
+        //printf("first-second elapsed: %f seconds\n", (double)(second - first) / CLOCKS_PER_SEC);
+
         //Check if we ran out of disk space
         if (i < addBlocks)
         {
@@ -701,7 +739,7 @@ int fs_write(int fildes, void* buf, size_t nbyte)
         //set f to the start of the file
         f = f - blocksRequired;
     }
-    
+
     //Actually do the writing
     char blockBuffer[BLOCK_SIZE] = {0};
     int buffer_iterator = 0;
