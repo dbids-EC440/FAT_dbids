@@ -17,7 +17,7 @@ struct dir_entry
 {
     int used;                   // Is this file-”slot” in use
     char name [MAX_F_NAME + 1]; 
-    int size;                   // file size
+    unsigned int size;          // file size
     unsigned short head;        // first data block of file
     int8_t ref_cnt;             // how many open file descriptors are there?// ref_cnt > 0 -> cannot delete file
 };
@@ -26,7 +26,7 @@ struct file_descriptor
 {
     int used;                    // fdin use
     unsigned short file;         // the first block of the file (f) to which fd refers to
-    unsigned short offset;       // position of fd within f
+    unsigned int offset;         // position of fd within f
 };
 /******************************************************************************/
 struct super_block fs;
@@ -77,7 +77,7 @@ int writeDirectory(unsigned short dir_idx)
         {
             index += sprintf(&w_dir_str[index], "%1c", DIR[i].name[j]);
         }
-        index += sprintf(&w_dir_str[index], "%-8d%-4hu%-2hhd", DIR[i].size, DIR[i].head, DIR[i].ref_cnt);
+        index += sprintf(&w_dir_str[index], "%-8i%-4hu%-2hhd", DIR[i].size, DIR[i].head, DIR[i].ref_cnt);
     }
 
     //Write the directory string to disk
@@ -107,7 +107,7 @@ int readDirectory(unsigned short dir_idx)
     {
         sscanf(&r_dir_str[i*31], "%1d ", &DIR[i].used);
         strncpy(DIR[i].name, &r_dir_str[((i*31) + 1)], sizeof(char[MAX_F_NAME + 1]));
-        sscanf(&r_dir_str[(i*31) + 17], "%8d%4hu%2hhd", &DIR[i].size, &DIR[i].head, &DIR[i].ref_cnt);
+        sscanf(&r_dir_str[(i*31) + 17], "%8i%4hu%2hhd", &DIR[i].size, &DIR[i].head, &DIR[i].ref_cnt);
     }
 
     return SUCCESS;
@@ -624,7 +624,7 @@ int fs_read(int fildes, void* buf, size_t nbyte)
     }
 
     //Copy the correct section of readBuffer
-    strncpy((char*) buf, &readBuffer[firstblock_offset], nbyte);
+    memcpy(buf, &readBuffer[firstblock_offset], nbyte);
     free(readBuffer);
 
     //Implicitly increment offset
@@ -715,7 +715,11 @@ int fs_write(int fildes, void* buf, size_t nbyte)
         }
 
         //Check if we ran out of disk space
-        if (i < addBlocks)
+        if (i == 0)
+        {
+            return 0; //Disk entirely out of space for the write
+        }
+        else if (i < addBlocks)
         {
             blocksRequired -= (addBlocks - i);
             nbyte = (blocksRequired*BLOCK_SIZE) - fildesArray[fildes].offset;
@@ -746,7 +750,7 @@ int fs_write(int fildes, void* buf, size_t nbyte)
         }
 
         //Write the needed data to the first block
-        strncpy(&blockBuffer[firstblock_offset], buf, firstBlockWriteBytes);
+        memcpy(&blockBuffer[firstblock_offset], buf, firstBlockWriteBytes);
         block_write(FAT[f], &blockBuffer[0]);
 
         //Update iterators
@@ -759,20 +763,21 @@ int fs_write(int fildes, void* buf, size_t nbyte)
     {
         if((buffer_iterator + BLOCK_SIZE) < nbyte)
         {
-            strncpy(&blockBuffer[0], buf + buffer_iterator, BLOCK_SIZE);
+            memcpy(&blockBuffer[0], buf + buffer_iterator, BLOCK_SIZE);
             buffer_iterator += BLOCK_SIZE;
         }
         else
         {
             memset(&blockBuffer[0], 0, BLOCK_SIZE);
-            strncpy(&blockBuffer[0], buf + buffer_iterator, nbyte - buffer_iterator);
+            memcpy(&blockBuffer[0], buf + buffer_iterator, nbyte - buffer_iterator);
         }
 
         block_write(FAT[f], &blockBuffer[0]);
     }
 
     //Update meta information
-    DIR[d].size += nbyte;
+    if (DIR[d].size < (nbyte + fildesArray[fildes].offset))
+        DIR[d].size = nbyte + fildesArray[fildes].offset;
     fildesArray[fildes].offset += nbyte;
 
     return nbyte;
@@ -848,13 +853,14 @@ int fs_lseek(int fildes, off_t offset)
     }
 
     //Check that the offset is less than the file size (not seeking beyond the file)
-    if((offset < 0) || (DIR[d].size < offset))
+    if((offset < 0) || ((off_t) DIR[d].size < offset))
     {
         return FAILURE;
     }
 
     //Actually lseek!
     fildesArray[fildes].offset = offset;
+
     return 0;
 }
 
