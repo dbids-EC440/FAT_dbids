@@ -1,0 +1,75 @@
+Devin Bidstrup U19115995 terrier007
+EC440 Operating Systems
+
+# Project 5 README
+
+## Structs
+
+### super_block
+  This struct contains the information needed to access the rest of the meta information properly, despite the fact that these are in fact fixed values in my system.  Namely, the start block of the FAT, the FAT's length, the start block of the directory, the directories length, and the start block of the data.
+  
+### dir_entry
+	This is used to store each entry into the directory.  Each directory entry contains a used bit to store whether or not the file at that index still exists, a string name to store the file name, a integer to store the size of the file, an unsigned short to store the head block of the file, and a int8 to store the number of file descriptors pointing to the file.
+	
+### file_descriptor
+	This struct is used for file descriptors opened at runtime to write, read, seek, and truncate files.  The used bit is used for saying whether that entry in the array of file descriptors is in use, the file bit is the first block of the file which the file descriptor referrs to, and the offset is the current value of the offset into the file at byte granularity relative to the start of the file.
+	
+## Helper Functions
+
+### writeSuperBlock, writeFAT, writeDirectory
+	These are three helper functions which I wrote to write the respecitve parts of the meta information to the disk.  They all use some combination of sprintf to format the meta data as a string and then write that string to the disk using block_write.  In this way they are in a fixed format which can then be read.
+
+### readSuperBlock, readFAT, readDirectory
+	These are the complements to the write functions above which read from disk the respecitve meta information predominately using the sscanf function and similar format specifiers to how they are written.  The sole exception to this is the name in the directory entries, which uses strcpy to copy the section of the file name to the current entry in DIR (sscanf can't be used as it would skip whitespace).
+	
+### FATdefrag()
+	This function is unique to my implementation and in essence removes all empty spaces between files in the FAT.  Presumably these empty spaces could occur as files are created and deleted on the FAT such that this function would be needed to remove those spaces in order to insure that the maximum amount of information could be stored on disk.
+	
+### findEmptyBlock()
+	This function is used to find the next empty block on the Disk.  Originally, this function was quite inefficient and caused the program to take a couple minutes to run when big files were being written to disk.  However, the function now guesses that the next empty block will be one greater than the previous empty block, taking advantage of spatial locality and speeding up the process to seconds in my testing.
+	
+### findDirectoryEntry
+	Given a file descriptor, the function returns the index into the directory for the file, or -1.
+	
+## FS Management Functions
+
+### make_fs
+	make_fs creates an empty file system on a virtual disk with the specified name.  First it calls the make_disk and open_disk functions provided to create and open a virtual disk.  Then it initializes the super block to have static values determined beforehand by myself.  Then the super block is written to disk.  Then the directory entries have all of their used bits cleared before the directory is written to disk.  Finally, the FAT is set to be completely empty before it too is written to disk.  With all of this complete, the disk is closed.
+	
+### mount_fs
+	mount_fs opens and loads a file system from a virtual disk.  First it uses the open_disk function, then it reads all of the respective meta information structures from disk.  Finally, all of the file descriptors are set to be not used, and the fs is ready to go.
+	
+### umount_fs
+	This unmounts a file system from disk and closes the disk.  This means that the meta data information structures are written back to disk and then the close_disk() function is used.  FInally a check is performed to guarantee that all file descriptors are closed before the function returns successfully.
+
+## File Manipulation Functions
+	
+### fs_create
+	fs_create creates a new file with name name in the fs.  First it checks that the name is valid before proceeding to check if a directory entry already exists for this file and if there are 64 files already in used.  In this check it also finds an empty directory.  Then it finds an empty block on disk to store the file and updates the directory entry to reflect this block and the input name.  Then it finds an empty index in the FAT for the file, and sets the FAT entry accordingly.
+	
+### fs_delete
+	The function delete the file named name and frees all corresponding meta data.  First it checks the length of the name and finds the directory entry for the file.  Then it finds the location of the head of the FAT and uses that to remove all entries into the FAT for the file.  Then the FATdefrag function is used to reorganize the FATtable to remove empty spaces caused by this deletion.  Finally the directory information for the file is deleted accordingly.
+	
+### fs_open
+	This function opens the specified file for reading and writing, returning a file descriptor if successful.  First it checks the name, before finding the next open file descriptor in the array of file descriptors.  Then it finds the directory entry for the file by comparing the specified name to those in the directory.  The directory entry for the file has its ref_cnt variable incremented to indicate that the file descriptor references it.  Then the file descriptors file member is set to the head member of the directory, its offset to zero, and the file descriptor is set as used.
+	
+### fs_close
+	This function closes the specified file.  This is accomplised by first checking that the file descriptor is open and within the bounds.  Then the file descriptors used bit is cleared.  Then the directory entry for the file is found using the fildescriptor and the ref_cnt of the entry is decremented to indicated the decreased number of references.
+	
+### fs_read
+	This function reads nbyte bytes of data from file specified by fildes into buf.  First the file descriptors bounds are checked.  Then the directory entry is found, and nbyte is modified as needed to read only those bytes which could be read (based on where the file ends).  Then the fat is searched for the correct block to read first, and the blocks are read block by block into a readBuffer string.  This string is then copied to buf.  Finally the offset of the file descriptor is implicitly incremented by the number of bytes read.
+	
+### fs_write
+	This function writes nbytes of data to fildes from buf.  First the file descriptors bounds are checked and the directory entry is found for the file.  Then the head of the fat entry is found for the file.  If the blocks required to write the information to disk is greater than the current size of the file minus the current offset into the file, then we need to allocate more blocks to the file.  First the whole of the entries into the FAT for the file are cut into a seperate array, FATdefrag is called, and the entries are pasted back into the FAT at the next empty space.  This ensures that after the current file is all of the empty blocks available to the system.  Then we loop to add those blocks to the FAT provided we do not exceed the bounds of the FAT, at which point we will have run out of disk space.   Once we have allocated these blocks we write to disk the information from the input buffer into disk block by block.  The only complication here is that the first block containing the offset needs to be read before it can then be written, to ensure that no information is lost.  Finally the size of the directory and the file descriptor are updated.
+	
+### fs_get_filesize
+	This function simply returns the size of the file given a file descriptor, accomplished simply by finding the directory entry for that file descriptor and then returning the size of that file.
+	
+### fs_listfiles		
+	This function creates and populates an array of file names currently known to the fs.  This is accomplished by first searching the directory and counting the number of existing files.  Then a character array is dynamically allocated to the given pointer and the names of the files are copied into that array of strings using the strcpy function.  Finally the last entry into the array is set to NULL.
+	
+### fs_lseek
+	This function moves the offset of a given file descriptor to the position indicated by the offset argument at byte granularity relative to the start of the file.    First I find the directory entry for the file, then that entry is used to guarantee that the offset will be within the bounds of the file.  Finally the offset is set.
+	
+### fs_truncate
+	This function truncates the given file to length bytes.  First it checks that the file descriptor is between 0 and 32 and open.  Then the directory is found such that the we can check if the length being truncate to is less than or equal to the size of the file.  Then the head of the FAT if found for the file.   The number of blocks length requires is computed and if that is less than the number of blocks the file currently posesses, the rest of the FAT entry is removed and the FAT is defragged.  Then the size of the directory is updated to be length.

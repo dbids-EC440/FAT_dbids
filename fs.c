@@ -38,7 +38,7 @@ struct dir_entry DIR[MAX_F_NUM];                // Will be populated with the di
 int writeSuperBlock()
 {
     char buffer[BLOCK_SIZE] = {0};
-    sprintf(&buffer[0], "%4hu%4hu%4hu%4hu%4hu", fs.fat_idx, fs.fat_len, fs.dir_idx, fs.dir_len, fs.data_idx);
+    sprintf(&buffer[0], "%-4hu%-4hu%-4hu%-4hu%-4hu", fs.fat_idx, fs.fat_len, fs.dir_idx, fs.dir_len, fs.data_idx);
     
     if(block_write(SUPERBLOCK_LOC, &buffer[0]) == -1)
     {
@@ -67,12 +67,17 @@ int readSuperBlock()
 int writeDirectory(unsigned short dir_idx)
 {
     //Get all of the directory contents into a string
-    int i;
+    int i, j;
     int index = 0;
     char w_dir_str[BLOCK_SIZE] = {0};
     for (i = 0; i < MAX_F_NUM; i++)
     {
-        index += sprintf(&w_dir_str[index], "%1d%16s%8d%4hu%2hhd", DIR[i].used, DIR[i].name, DIR[i].size, DIR[i].head, DIR[i].ref_cnt);
+        index += sprintf(&w_dir_str[index], "%1d" ,  DIR[i].used);
+        for (j = 0; j < 16; j++)
+        {
+            index += sprintf(&w_dir_str[index], "%1c", DIR[i].name[j]);
+        }
+        index += sprintf(&w_dir_str[index], "%-8d%-4hu%-2hhd", DIR[i].size, DIR[i].head, DIR[i].ref_cnt);
     }
 
     //Write the directory string to disk
@@ -100,11 +105,11 @@ int readDirectory(unsigned short dir_idx)
     int i;
     for (i = 0; i < MAX_F_NUM; i++)
     {
-        sscanf(&r_dir_str[i*36], "%1d%16s%8d%4hu%2hhd", &DIR[i].used, DIR[i].name, &DIR[i].size, &DIR[i].head, &DIR[i].ref_cnt);
-        //sscanf(&r_dir_str[i*dirSize], "%d ", &DIR[i].used);
-        //strncpy(DIR[i].name, &r_dir_str[(i*dirSize)+sizeof(int)], sizeof(char[MAX_F_NAME + 1]));
-        //sscanf(&r_dir_str[(i*dirSize) + sizeof(int) + sizeof(char[MAX_F_NAME + 1])], "%d%hu%hhd", &DIR[i].size, &DIR[i].head, &DIR[i].ref_cnt);
+        sscanf(&r_dir_str[i*31], "%1d ", &DIR[i].used);
+        strncpy(DIR[i].name, &r_dir_str[((i*31) + 1)], sizeof(char[MAX_F_NAME + 1]));
+        sscanf(&r_dir_str[(i*31) + 17], "%8d%4hu%2hhd", &DIR[i].size, &DIR[i].head, &DIR[i].ref_cnt);
     }
+
     return SUCCESS;
 }
 
@@ -113,11 +118,11 @@ int writeFAT(unsigned short fat_idx, unsigned int fat_len)
 {
     //Assmble the string representing the FAT
     int i;
-    char FAT_str[FAT_LEN * BLOCK_SIZE] = {0};
+    char FAT_str[FAT_LEN * BLOCK_SIZE * 4] = {0};
     int index = 0;
     for (i = 0; i < FAT_SIZE; i++)
     {
-        index += sprintf(&FAT_str[index], "%4hu", FAT[i]);
+        index += sprintf(&FAT_str[index], "%-4hu", FAT[i]);
     }
 
     //Write the string to each block
@@ -147,7 +152,7 @@ int readFAT(unsigned short fat_idx, unsigned int fat_len)
     }
     
     for (i = 0; i < FAT_SIZE; i++)
-        sscanf(&FAT_str[i], "%4hu", &FAT[i]);
+        sscanf(&FAT_str[i*4], "%4hu", &FAT[i]);
 
     return SUCCESS;
 }
@@ -472,7 +477,9 @@ int fs_delete(char* name)
     
     //Remove the files blocks from the FAT
     int f;
-    for(f=0; (FAT[f] != DIR[d].head) && (f < FAT_SIZE); f++);   //Find the head of the file
+    for (f = 0; f < FAT_SIZE; f++)
+        if (FAT[f] == DIR[d].head)
+            break;
     if (f == FAT_SIZE)
     {
         return FAILURE;
@@ -617,7 +624,6 @@ int fs_read(int fildes, void* buf, size_t nbyte)
     }
 
     //Copy the correct section of readBuffer
-    //buf = malloc(nbyte);
     strncpy((char*) buf, &readBuffer[firstblock_offset], nbyte);
     free(readBuffer);
 
@@ -695,12 +701,8 @@ int fs_write(int fildes, void* buf, size_t nbyte)
         f--; //This is now the current location of END_OF_FILE for the file
 
         //Loop through the number of blocks we need to add
-        //clock_t first = clock();
-        //clock_t tic, toc;
         for (i = 0; i < addBlocks; i++)
         {
-            //tic = clock();
-
             //Find the next empty block to use
             int emptyBlock = findEmptyBlock();
 
@@ -710,13 +712,7 @@ int fs_write(int fildes, void* buf, size_t nbyte)
 
             //Add the empty block to the FAT entry for this file
             FAT[f++] = emptyBlock;
-
-            //toc = clock();
-            //if (i % addBlocks == 0)
-                //printf("single loop elapsed: %f seconds\n", (double)(toc - tic) / CLOCKS_PER_SEC);
         }
-        //clock_t second = clock();
-        //printf("first-second elapsed: %f seconds\n", (double)(second - first) / CLOCKS_PER_SEC);
 
         //Check if we ran out of disk space
         if (i < addBlocks)
@@ -893,15 +889,13 @@ int fs_truncate(int fildes, off_t length)
     //Remove uneccessary blocks from the FAT (if needed)
     int newBlockNum = (length / BLOCK_SIZE) + ((length % BLOCK_SIZE) != 0);
     int fileBlocks = ((DIR[d].size) / BLOCK_SIZE) + (((DIR[d].size) % BLOCK_SIZE) != 0);
-    if (newBlockNum > fileBlocks)
+    if (newBlockNum < fileBlocks)
     {
         f += newBlockNum;
         FAT[f] = END_OF_FILE;
         f++;
         for (; f < fileBlocks; f++)
-        {
             FAT[f] = EMPTY;
-        }
     }
     
     //Remove introduced spaces in the FAT

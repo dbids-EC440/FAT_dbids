@@ -1,4 +1,4 @@
-FLAGS = -Werror -Wall -g -O0
+FLAGS = -Werror -Wall -g
 
 all: main
 
