@@ -653,6 +653,10 @@ int fs_write(int fildes, void* buf, size_t nbyte)
     int firstblock_idx = fildesArray[fildes].offset / BLOCK_SIZE;
     int firstblock_offset = fildesArray[fildes].offset % BLOCK_SIZE;
 
+    //Truncate writes to the limit of 16MB
+    if (nbyte > MAX_F_SIZE - fildesArray[fildes].offset)
+        nbyte = MAX_F_SIZE - fildesArray[fildes].offset;
+
     //Get the start of the entry to the FAT for the file
     int f;
     for (f = 0; f < FAT_SIZE; f++)
