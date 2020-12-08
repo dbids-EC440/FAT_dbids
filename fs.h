@@ -14,9 +14,8 @@
 #define MAX_F_NUM    64        /* maximum number of files                     */
 #define MAX_FILDES   32        /* maximum number of file descriptors          */
 #define FAT_SIZE     8245     /* maximum number of entries in FAT             */
-#define SUCCESS      0
-#define FAILURE      -1
 #define SUPERBLOCK_LOC 0       /* Fixed location of the super block on the virtual disk */
+#define MAX_F_SIZE   16777216   /* Maximum size of a single file              */
 
 //Defined values for the superblock
 #define DIR_IDX     1
@@ -28,6 +27,10 @@
 //Symbols used for EOF and N/A numbers in the FAT
 #define END_OF_FILE   9000
 #define EMPTY         9999
+
+//Return Values
+#define SUCCESS      0
+#define FAILURE      -1
 
 /******Napkin Math for Meta Information******/
 /*
